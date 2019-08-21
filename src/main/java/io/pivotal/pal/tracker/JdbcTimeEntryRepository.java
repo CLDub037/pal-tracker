@@ -1,0 +1,99 @@
+package io.pivotal.pal.tracker;
+
+import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.support.KeyHolder;
+
+import javax.sql.DataSource;
+import java.sql.Date;
+import java.sql.PreparedStatement;
+import java.util.List;
+import java.util.Objects;
+
+import static java.sql.Statement.RETURN_GENERATED_KEYS;
+
+public class JdbcTimeEntryRepository implements TimeEntryRepository {
+    private final JdbcTemplate jdbcTemplate;
+
+    public JdbcTimeEntryRepository(DataSource dataSource) {
+        jdbcTemplate = new JdbcTemplate(dataSource);
+    }
+
+    @Override
+    public TimeEntry create(TimeEntry timeEntry) {
+        KeyHolder generatedKeyHolder = new GeneratedKeyHolder();
+
+        jdbcTemplate.update(connection -> {
+            PreparedStatement statement = connection.prepareStatement(
+                    "INSERT INTO time_entries (project_id, user_id, date, hours) " +
+                            "VALUES (?, ?, ?, ?)",
+                    RETURN_GENERATED_KEYS
+            );
+
+            statement.setLong(1, timeEntry.getProjectId());
+            statement.setLong(2, timeEntry.getUserId());
+            statement.setDate(3, Date.valueOf(timeEntry.getDate()));
+            statement.setInt(4, timeEntry.getHours());
+
+            return statement;
+        }, generatedKeyHolder);
+
+        return find(Objects.requireNonNull(generatedKeyHolder.getKey()).longValue());
+    }
+
+    @Override
+    public TimeEntry find(Long id) {
+
+        try {
+            return jdbcTemplate.queryForObject("SELECT * FROM time_entries WHERE id = ?",
+                    mapper, id);
+        } catch (EmptyResultDataAccessException e) {
+            return null;
+        }
+    }
+
+    @Override
+    public List<TimeEntry> list() {
+        return jdbcTemplate.query("SELECT * FROM time_entries", mapper);
+    }
+
+    @Override
+    public TimeEntry update(Long id, TimeEntry timeEntry) {
+        jdbcTemplate.update(connection -> {
+            PreparedStatement statement = connection.prepareStatement(
+                    "UPDATE time_entries SET " +
+                            "project_id = ?, " +
+                            "user_id = ?, " +
+                            "date = ?, " +
+                            "hours = ? " +
+                            "WHERE id = ?"
+            );
+
+            statement.setLong(1, timeEntry.getProjectId());
+            statement.setLong(2, timeEntry.getUserId());
+            statement.setDate(3, Date.valueOf(timeEntry.getDate()));
+            statement.setInt(4, timeEntry.getHours());
+            statement.setLong(5, id);
+
+            return statement;
+        });
+
+        return find(id);
+    }
+
+    @Override
+    public void delete(Long id) {
+        jdbcTemplate.update("DELETE FROM time_entries WHERE id = ?", id);
+    }
+
+
+    private RowMapper<TimeEntry> mapper = (rs, rowNum) -> new TimeEntry(
+            rs.getLong("id"),
+            rs.getLong("project_id"),
+            rs.getLong("user_id"),
+            rs.getDate("date").toLocalDate(),
+            rs.getInt("hours")
+    );
+}
